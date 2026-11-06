@@ -106,3 +106,85 @@ describe('NotesColumn', () => {
     expect(editor).toHaveAttribute('data-note-id', '')
   })
 })
+
+describe('NotesColumn search', () => {
+  const now = Date.now()
+  const iso = (daysAgo: number) => new Date(now - daysAgo * 86_400_000).toISOString()
+  const notes: NoteResponse[] = [
+    { id: 'note:1', title: 'Weekly team meeting', content: 'Budget review', note_type: 'human', created: iso(9), updated: iso(2) },
+    { id: 'note:2', title: 'Café visit', content: 'Coffee tasting notes', note_type: 'human', created: iso(9), updated: iso(0) },
+    { id: 'note:3', title: 'Research summary', content: 'From the meeting with the vendor', note_type: 'ai', created: iso(9), updated: iso(3) },
+    { id: 'note:4', title: 'Meeting minutes', content: 'Decisions', note_type: 'human', created: iso(9), updated: iso(4) },
+    { id: 'note:5', title: 'Ideas', content: 'Meet Sam', note_type: 'human', created: iso(9), updated: iso(40) },
+  ]
+
+  const searchBox = () => screen.getByRole('searchbox', { name: 'notebooks.searchNotesLabel' })
+  const titles = () => screen.getAllByRole('heading', { level: 4 }).map((h) => h.textContent)
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('hides the search box when the notebook has no notes', () => {
+    renderNotes([])
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+  })
+
+  it('filters as you type, highlights matches and shows Top Hits', () => {
+    renderNotes(notes)
+
+    fireEvent.change(searchBox(), { target: { value: 'meet' } })
+
+    expect(screen.getByRole('status')).toHaveTextContent('notebooks.notesMatchCount')
+    expect(screen.getByText('notebooks.topHits')).toBeInTheDocument()
+    expect(titles()).toEqual(['Weekly team meeting', 'Meeting minutes', 'Research summary', 'Ideas'])
+    // The typed prefix is marked inside the longer word ("[meet]ing").
+    expect(screen.getAllByText((_, el) => el?.tagName === 'MARK').map((m) => m.textContent)).toContain('meet')
+  })
+
+  it('matches accent-insensitively', () => {
+    renderNotes(notes)
+    fireEvent.change(searchBox(), { target: { value: 'cafe' } })
+    expect(titles()).toEqual(['Café visit'])
+  })
+
+  it('shows an empty state when nothing matches', () => {
+    renderNotes(notes)
+    fireEvent.change(searchBox(), { target: { value: 'zebra' } })
+    expect(screen.getByText('notebooks.noNotesMatch')).toBeInTheDocument()
+  })
+
+  it('toggles suggested filters into the query', () => {
+    renderNotes(notes)
+
+    const aiChip = screen.getByRole('button', { name: 'notebooks.filterAiNotes' })
+    fireEvent.click(aiChip)
+
+    expect(searchBox()).toHaveValue('is:ai')
+    expect(aiChip).toHaveAttribute('aria-pressed', 'true')
+    expect(titles()).toEqual(['Research summary'])
+
+    fireEvent.click(aiChip)
+    expect(searchBox()).toHaveValue('')
+    expect(titles()).toHaveLength(notes.length)
+  })
+
+  it('opens the active result with Enter after arrow-key navigation', () => {
+    const editor = renderNotes(notes)
+
+    fireEvent.change(searchBox(), { target: { value: 'meet' } })
+    fireEvent.keyDown(searchBox(), { key: 'ArrowDown' })
+    fireEvent.keyDown(searchBox(), { key: 'Enter' })
+
+    expect(editor).toHaveAttribute('data-open', 'true')
+    expect(editor).toHaveAttribute('data-note-id', 'note:4')
+  })
+
+  it('clears the search with Escape', () => {
+    renderNotes(notes)
+    fireEvent.change(searchBox(), { target: { value: 'meet' } })
+    fireEvent.keyDown(searchBox(), { key: 'Escape' })
+    expect(searchBox()).toHaveValue('')
+    expect(screen.queryByText('notebooks.topHits')).not.toBeInTheDocument()
+  })
+})

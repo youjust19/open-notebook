@@ -1,6 +1,6 @@
 # Search and Ask - Finding What You Need
 
-Search and Ask live on the **Ask and Search** page (sidebar, under **Process**). Both work across your whole knowledge base, or only the notebooks you pick. There is no separate search box inside a notebook.
+Search and Ask live on the **Ask and Search** page (sidebar, under **Process**). Both work across your whole knowledge base, or only the notebooks you pick. To find a note inside one notebook, use the **Search notes** box in its Notes column (see [Finding Notes in a Notebook](working-with-notes.md#finding-notes-in-a-notebook)).
 
 You can also start either from **Quick actions** (**Ctrl+K** / **⌘K**): type a query and choose *Search results for "..."* or *Ask about "..."*.
 
@@ -17,13 +17,18 @@ How both work under the hood is explained in [AI Context & RAG](../2-CORE-CONCEP
 ## Search
 
 1. Open **Ask and Search** and choose the **Search** tab.
-2. Type your query and press **Enter**.
+2. Type your query. With **Text Search**, results update as you type (from two characters, after a short pause); press **Enter** to search immediately. **Vector Search** runs only when you press **Enter** or click **Search**, because each search calls the embedding model.
 3. Adjust if needed:
    - **Search Type**: **Text Search** or **Vector Search**.
    - **Search In**: **Search Sources** and/or **Search Notes**.
    - **Notebooks**: pick notebooks to limit the search, or leave all unchecked to search everything.
 
-Results show how many were found; click a result to open the source, note or insight. Where available, a result also lists its **Matches** (the matching passages).
+Results show how many were found; click a result to open the source, note or insight.
+
+- **Top Hits**: when there are more than three results, the three highest-scoring ones are shown first under **Top Hits**, followed by **More results**.
+- **Filter by type**: when results include more than one type, the **All**, **Sources**, **Notes** and **Insights** buttons (with counts) narrow the list.
+- **Highlighting**: the words you searched for are highlighted in titles and passages. Where available, a result shows its first matching passage, and **Matches** lists all of them. Text search returns titles only; vector search returns passages.
+- **Keyboard**: **↓** from the search box moves into the results, **↑**/**↓** move between them, **Enter** opens one, and **Esc** in the search box clears it.
 
 ### Text Search vs. Vector Search
 

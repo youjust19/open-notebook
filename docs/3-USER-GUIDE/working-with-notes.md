@@ -36,6 +36,21 @@ Insights can be copied into a notebook as notes through the API (`POST /api/insi
 
 ---
 
+## Finding Notes in a Notebook
+
+The **Search notes** box at the top of the Notes column filters the notebook's notes as you type. It searches note titles and content in your browser, so it needs no AI model and works for notes that aren't embedded.
+
+- **Words match from the start**: `meet` finds "meeting". Every word you type must match. Case and accents are ignored, so `cafe` finds "Café".
+- **Exact phrases**: put them in quotes, for example `"budget review"`.
+- **Filters**: `is:ai` or `is:human` for the note type; `modified today`, `yesterday`, `this week`, `last week`, `this month`, `last month` or `last 7 days` for when a note was last edited. Start the date with `created` (`created last week`) to filter on creation date instead. Filters combine with words: `budget is:human this month`.
+- **Suggested searches**: the **AI notes**, **My notes**, **Edited today** and **Edited this week** buttons add or remove those filters.
+- **Top Hits**: when more than three notes match, the best three are shown first under **Top Hits**. Notes whose title matches rank highest, then more recently edited notes. The rest follow, newest first.
+- **Keyboard**: **↑**/**↓** pick a result, **Enter** opens it, **Esc** clears the search.
+
+Matching words are highlighted in the titles and in a short excerpt from each note. To search notes across notebooks, or inside sources, use [Search](search.md).
+
+---
+
 ## Using Notes
 
 - **In notebook chat**: each note has a context icon that switches it between included (full content) and **Not included in chat**. The Notes column's **Context** menu includes or excludes all of them. See [Chat Effectively](chat-effectively.md#choosing-what-the-ai-sees).

@@ -24,6 +24,26 @@ import { StreamingResponse } from '@/components/search/StreamingResponse'
 import { AdvancedModelsDialog } from '@/components/search/AdvancedModelsDialog'
 import { SaveToNotebooksDialog } from '@/components/search/SaveToNotebooksDialog'
 import { NotebookScopeSelector } from '@/components/search/NotebookScopeSelector'
+import { HighlightedText } from '@/components/common/HighlightedText'
+import { excerpt, words } from '@/lib/utils/note-search'
+import { cn } from '@/lib/utils'
+import type { SearchResult } from '@/lib/types/search'
+
+/** Text search runs as you type once the query has this many characters. */
+const LIVE_SEARCH_MIN_CHARS = 2
+const LIVE_SEARCH_DELAY_MS = 300
+/** Like Apple Notes, the strongest matches are pulled out as Top Hits when there are more than this many. */
+const TOP_HIT_COUNT = 3
+
+type ResultKind = 'source' | 'note' | 'insight'
+type ResultFilter = 'all' | ResultKind
+
+function resultKind(result: SearchResult): ResultKind {
+  const table = result.id.split(':')[0]
+  if (table === 'note') return 'note'
+  if (table === 'source_insight') return 'insight'
+  return 'source'
+}
 
 export default function SearchPage() {
   const { t } = useTranslation()
@@ -100,10 +120,139 @@ export default function SearchPage() {
     })
   }, [searchQuery, searchType, searchSources, searchNotes, scopeNotebookIds, searchMutation])
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  // Results filter (client-side) and keyboard navigation
+  const [resultFilter, setResultFilter] = useState<ResultFilter>('all')
+  const resultsRef = useRef<HTMLDivElement>(null)
+
+  // Search as you type (text search only: vector search calls the embedding model on every request).
+  const latestSearchRef = useRef(handleSearch)
+  useEffect(() => {
+    latestSearchRef.current = handleSearch
+  })
+  useEffect(() => {
+    if (searchType !== 'text' || searchQuery.trim().length < LIVE_SEARCH_MIN_CHARS) return
+    const timer = setTimeout(() => latestSearchRef.current(), LIVE_SEARCH_DELAY_MS)
+    return () => clearTimeout(timer)
+  }, [searchQuery, searchType, searchSources, searchNotes, scopeNotebookIds])
+
+  const focusResult = (index: number) => {
+    const buttons = resultsRef.current?.querySelectorAll<HTMLButtonElement>('[data-result-link]')
+    if (!buttons || buttons.length === 0) return
+    buttons[Math.max(0, Math.min(index, buttons.length - 1))].focus()
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
+      e.preventDefault()
       handleSearch()
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      focusResult(0)
+    } else if (e.key === 'Escape' && searchQuery) {
+      e.preventDefault()
+      setSearchQuery('')
     }
+  }
+
+  const handleResultsKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+    const buttons = Array.from(
+      resultsRef.current?.querySelectorAll<HTMLButtonElement>('[data-result-link]') ?? []
+    )
+    const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
+    if (current === -1) return
+    e.preventDefault()
+    if (e.key === 'ArrowUp' && current === 0) {
+      document.getElementById('search-query')?.focus()
+      return
+    }
+    focusResult(current + (e.key === 'ArrowDown' ? 1 : -1))
+  }
+
+  // Highlight against the query that produced the results, not the one being typed.
+  const submittedQuery = searchMutation.variables?.query ?? ''
+  // The backend matches each word, so highlight each word (date words are not filters here).
+  const needles = useMemo(() => words(submittedQuery), [submittedQuery])
+
+  const allResults = useMemo(() => searchMutation.data?.results ?? [], [searchMutation.data])
+  const kindCounts = useMemo(() => {
+    const counts: Record<ResultKind, number> = { source: 0, note: 0, insight: 0 }
+    for (const result of allResults) counts[resultKind(result)]++
+    return counts
+  }, [allResults])
+  const filterOptions = useMemo(
+    () =>
+      ([
+        ['all', 'searchPage.filterAll', allResults.length],
+        ['source', 'searchPage.filterSources', kindCounts.source],
+        ['note', 'searchPage.filterNotes', kindCounts.note],
+        ['insight', 'searchPage.filterInsights', kindCounts.insight],
+      ] as const).filter(([value, , count]) => value === 'all' || count > 0),
+    [allResults.length, kindCounts]
+  )
+  const activeFilter: ResultFilter =
+    resultFilter === 'all' || kindCounts[resultFilter] > 0 ? resultFilter : 'all'
+  const filteredResults = useMemo(
+    () => (activeFilter === 'all' ? allResults : allResults.filter((r) => resultKind(r) === activeFilter)),
+    [allResults, activeFilter]
+  )
+  const topHits = filteredResults.length > TOP_HIT_COUNT ? filteredResults.slice(0, TOP_HIT_COUNT) : []
+  const otherResults = topHits.length > 0 ? filteredResults.slice(TOP_HIT_COUNT) : filteredResults
+
+  const renderResult = (result: SearchResult) => {
+    const [type, id] = result.id.split(':')
+    const modalType = type === 'source_insight' ? 'insight' : type as 'source' | 'note' | 'insight'
+    const kind = resultKind(result)
+    const matches = (result.matches ?? []).filter((match) => typeof match === 'string' && match.trim())
+    const kindLabel =
+      kind === 'note' ? t('common.note') : kind === 'insight' ? t('common.insight') : t('common.source')
+
+    return (
+      <Card key={result.id} className="transition-shadow hover:shadow-lift">
+        <CardContent className="pt-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <button
+                type="button"
+                data-result-link
+                onClick={() => openModal(modalType, id)}
+                className="text-primary hover:underline font-medium text-left break-words"
+              >
+                <HighlightedText text={result.title} needles={needles} />
+              </button>
+              <Badge variant="outline" className="ml-2 text-[11px]">
+                {kindLabel}
+              </Badge>
+              <Badge variant="secondary" className="ml-2 font-mono text-[11px]">
+                {result.final_score.toFixed(2)}
+              </Badge>
+            </div>
+          </div>
+
+          {matches.length > 0 && (
+            <p className="mt-2 text-sm text-muted-foreground break-words">
+              <HighlightedText text={excerpt(matches[0], needles)} needles={needles} />
+            </p>
+          )}
+
+          {matches.length > 1 && (
+            <Collapsible className="mt-3">
+              <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+                <ChevronDown className="h-4 w-4" />
+                {t('searchPage.matches', { count: matches.length })}
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-2 space-y-1">
+                {matches.map((match, i) => (
+                  <div key={i} className="text-sm pl-6 py-1 border-l-2 border-muted break-words">
+                    <HighlightedText text={excerpt(match, needles, 160)} needles={needles} />
+                  </div>
+                ))}
+              </CollapsibleContent>
+            </Collapsible>
+          )}
+        </CardContent>
+      </Card>
+    )
   }
 
   const handleAsk = useCallback(() => {
@@ -341,8 +490,7 @@ export default function SearchPage() {
                       placeholder={t('searchPage.enterSearchPlaceholder')}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      onKeyPress={handleKeyPress}
-                      disabled={searchMutation.isPending}
+                      onKeyDown={handleKeyDown}
                       className="flex-1"
                       aria-label={t('common.accessibility.enterSearch')}
                       autoComplete="off"
@@ -361,7 +509,9 @@ export default function SearchPage() {
                       {t('searchPage.search')}
                     </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground">{t('searchPage.pressToSearch')}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {searchType === 'text' ? t('searchPage.resultsAsYouType') : t('searchPage.pressToSearch')}
+                  </p>
                   {searchType === 'vector' ? (
                     <p className="text-xs text-muted-foreground">{t('searchPage.searchCoverageVector')}</p>
                   ) : (
@@ -460,51 +610,47 @@ export default function SearchPage() {
                     {searchMutation.data.results.length === 0 ? (
                       <Card>
                         <CardContent className="pt-6 text-center text-muted-foreground">
-                          {t('searchPage.noResultsFor', { query: searchQuery })}
+                          {t('searchPage.noResultsFor', { query: submittedQuery })}
                         </CardContent>
                       </Card>
                     ) : (
-                      <div className="space-y-2">
-                        {searchMutation.data.results.map((result, index) => {
-                          const [type, id] = result.id.split(':')
-                          const modalType = type === 'source_insight' ? 'insight' : type as 'source' | 'note' | 'insight'
+                      <>
+                        {filterOptions.length > 2 && (
+                          <div className="flex flex-wrap gap-1.5" role="group" aria-label={t('searchPage.filterResultsLabel')}>
+                            {filterOptions.map(([value, labelKey, count]) => (
+                              <button
+                                key={value}
+                                type="button"
+                                aria-pressed={activeFilter === value}
+                                onClick={() => setResultFilter(value)}
+                                className={cn(
+                                  'rounded-full border px-2.5 py-0.5 text-xs transition-colors',
+                                  activeFilter === value
+                                    ? 'border-primary bg-primary text-primary-foreground'
+                                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                                )}
+                              >
+                                {t(labelKey)} · {count}
+                              </button>
+                            ))}
+                          </div>
+                        )}
 
-                          return (
-                          <Card key={index} className="transition-shadow hover:shadow-lift">
-                            <CardContent className="pt-4">
-                              <div className="flex items-start justify-between gap-4">
-                                <div className="flex-1">
-                                  <button
-                                    onClick={() => openModal(modalType, id)}
-                                    className="text-primary hover:underline font-medium"
-                                  >
-                                    {result.title}
-                                  </button>
-                                  <Badge variant="secondary" className="ml-2 font-mono text-[11px]">
-                                    {result.final_score.toFixed(2)}
-                                  </Badge>
-                                </div>
-                              </div>
-
-                              {result.matches && result.matches.length > 0 && (
-                                <Collapsible className="mt-3">
-                                  <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
-                                    <ChevronDown className="h-4 w-4" />
-                                    {t('searchPage.matches', { count: result.matches.length })}
-                                  </CollapsibleTrigger>
-                                  <CollapsibleContent className="mt-2 space-y-1">
-                                    {result.matches.map((match, i) => (
-                                      <div key={i} className="text-sm pl-6 py-1 border-l-2 border-muted">
-                                        {match}
-                                      </div>
-                                    ))}
-                                  </CollapsibleContent>
-                                </Collapsible>
-                              )}
-                            </CardContent>
-                          </Card>
-                        )})}
-                      </div>
+                        <div ref={resultsRef} onKeyDown={handleResultsKeyDown} className="space-y-2">
+                          {topHits.length > 0 && (
+                            <h4 className="pt-1 text-[11px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">
+                              {t('searchPage.topHits')}
+                            </h4>
+                          )}
+                          {topHits.map((result) => renderResult(result))}
+                          {topHits.length > 0 && otherResults.length > 0 && (
+                            <h4 className="pt-2 text-[11px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">
+                              {t('searchPage.moreResults')}
+                            </h4>
+                          )}
+                          {otherResults.map((result) => renderResult(result))}
+                        </div>
+                      </>
                     )}
                   </div>
                 )}

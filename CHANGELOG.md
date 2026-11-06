@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Search inside a notebook's notes.** The Notes column has a **Search notes** box that filters notes as you type, in the browser (no AI model needed). Words match from the start (`meet` finds "meeting"), case and accents are ignored, and `"exact phrases"`, `is:ai` / `is:human` and date filters (`modified today`, `created last week`, `last 7 days`, …) are supported. Suggested-search buttons toggle the common filters, the best three matches are shown as **Top Hits** (title matches and recent edits first), matching words are highlighted in titles and excerpts, and ↑/↓/Enter/Esc work from the search box
+
+### Changed
+- **Ask and Search → Search is easier to scan.** Text search now runs as you type (after a short pause; Enter still searches at once, and vector search still waits for Enter because it calls the embedding model). The search box no longer locks while a search runs. Results show **Top Hits** and **More results**, a type badge, and **All / Sources / Notes / Insights** filters with counts; searched words are highlighted in titles and passages, and the first matching passage is shown without expanding **Matches**. ↓ moves from the search box into the results
+- Note previews in the Notes column wrap long words and links only where needed, instead of breaking every word mid-line
+
 ## [1.15.1] - 2026-11-03
 
 ### Changed
